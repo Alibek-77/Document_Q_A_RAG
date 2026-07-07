@@ -75,5 +75,32 @@ config=types.GenerateContentConfig(
     print(context)
     return generate_answer(question.question,context=context)
     #generation answer
-def hybrid_search(question:Question,alpha:float=0.5,):
-    pass
+def get_all_documents():
+    result = collection.get()
+    return result["documents"] if result["documents"] else []
+def hybrid_search(question:Question,alpha:float=0.5):
+    all_docs=get_all_documents()
+    bm25 = BM25Okapi([doc.lower().split() for doc in all_docs])
+    bm25_scores = np.array(bm25.get_scores(question.question.lower().split()))
+    if bm25_scores.max()>0:
+        bm25_scores=bm25_scores/bm25_scores.max()
+    n= min(20, len(all_docs))
+    result=collection.query(
+        query_texts=[question.question],
+        n_results=n
+    )
+    found_docs=result["documents"][0]
+    found_distances=result["distances"][0]
+    vector_scores=np.zeros(len(all_docs))
+    for doc,dist in zip(found_docs,found_distances):
+        if doc in all_docs:
+            idx=all_docs.index(doc)
+            vector_scores[idx]=1/(1+dist)
+    if vector_scores.max()>0:
+        vector_scores=vector_scores/vector_scores.max()
+    combined=alpha*vector_scores+(1-alpha)*bm25_scores
+    top_indices=np.argsort(combined)[::-1][:question.top_k*3]
+    top_docs=[all_docs[i] for i in top_indices]
+    final_docs=reranking_document(question,top_docs)
+    context="\n\n".join(final_docs)
+    return generate_answer(question.question,context)

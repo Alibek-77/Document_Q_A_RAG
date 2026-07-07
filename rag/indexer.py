@@ -21,4 +21,3 @@ def indexing_document(document:DocumentUpload):
         documents=chunks,
     )
     return len(chunks)
-
